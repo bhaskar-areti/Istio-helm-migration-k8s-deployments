@@ -1,0 +1,103 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: istio-ingressgateway
+  namespace: flux-system # Or your desired gateway namespace
+spec:
+  interval: 5m
+  timeout: 15m
+  releaseName: istio-ingressgateway # Added releaseName for clarity/consistency
+  targetNamespace: istio-system  
+  chart:
+    spec:
+      chart: gateway
+      version: 1.30.3
+      sourceRef:
+        kind: HelmRepository
+        name: istio-helmrepo
+        namespace: flux-system
+  dependsOn:
+    - name: istiod
+      namespace: flux-system
+    - name: istio-base
+      namespace: flux-system      
+  values:
+    name: istio-ingressgateway  
+#    revision: v124
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 1000m
+        memory: 1024Mi
+    global:
+      proxy: 
+        privileged: true      
+        # resources:
+        #   requests:
+        #     cpu: 50m
+        #     memory: 64Mi
+        #   limits:
+        #     cpu: 2000m
+        #     memory: 1024Mi
+      # Resources section sets the resources for the main container slot, which in this new chart is occupied by the (Envoy)proxy itself. 
+      # Our global.proxy.resources section then overrides the resources for this injected proxy.
+      # Legacy Istio installation method ( IstioOperator) deployed the main Envoy container plus (istio-proxy) sidecar,
+      # resulting in two containers. The new Istio chart (helmmanaged: gateway) is designed to deploy only one container: the Envoy proxy itself.
+      # The pod is created empty, and the (Istio) Mutating Webhook injects the (istio-proxy) image as the sole container. 
+    labels:
+      app: istio-ingressgateway
+      istio: ingressgateway
+#      topology.istio.io/network: network-app # Add this if it's required for our topology
+        # Replicating the necessary custom service configuration from v1.23.4 operator config
+    autoscaling:
+      enabled: false    
+    replicaCount: 3        
+    service:
+      type: NodePort # CRITICAL: Change from default LoadBalancer
+      # externalIPs:
+      #   - 10.2.101.161
+      #   - 10.2.101.162
+      #   - 10.2.101.163
+      # 3. Replicate all custom ports with their NodePort values
+      ports:
+        - name: status-port
+          port: 15021
+          targetPort: 15021
+        - name: http2
+          port: 80
+          targetPort: 8080 
+          nodePort: 30080 
+        - name: https
+          port: 443
+          targetPort: 8443
+          nodePort: 30443 
+        - name: postgres
+          port: 5432
+          targetPort: 5432
+          nodePort: 30432
+        - name: http-grpc
+          port: 20443
+          targetPort: 20443
+          nodePort: 31443 
+        # The following ports may be implicitly handled by the Service created by Istiod,
+        # but if they were explicitly defined here, include them:
+        - name: tls
+          port: 15443
+          targetPort: 15443
+        - name: tls-istiod
+          port: 15012
+          targetPort: 15012
+        - name: tls-webhook
+          port: 15017
+          targetPort: 15017       
+    # 4. Replicating custom environment variables using pod annotations
+    podAnnotations:
+      # important: Triggers the v124 control plane's webhook for processing this pod.
+      istio.io/rev: default   # ref: https://istio.io/latest/docs/reference/config/annotations/#IoIstioRev  
+      #This annotation is the instruction that tells the Istio Mutating Webhook to inject the Envoy proxy into the gateway pod
+      "sidecar.istio.io/proxyMetadata": |
+        ISTIO_META_ROUTER_MODE: "sni-dnat"
+#        ISTIO_META_REQUESTED_NETWORK_VIEW: network-app    
