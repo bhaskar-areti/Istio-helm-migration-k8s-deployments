@@ -1,0 +1,27 @@
+# TEST BOX ONLY: t1-lx-k8s-dev01-bhasakar / 10.1.70.115.
+# Leave suspended until the live server-side diff has been reviewed.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: calico-manifests
+  namespace: flux-system
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+spec:
+  suspend: true
+  interval: 10m
+  timeout: 20m
+  path: ./infrastructure/calico
+  prune: false
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  healthChecks:
+    - apiVersion: apps/v1
+      kind: DaemonSet
+      name: calico-node
+      namespace: kube-system
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: calico-kube-controllers
+      namespace: kube-system
